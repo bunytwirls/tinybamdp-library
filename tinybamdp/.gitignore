@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.venv/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+*-checkpoint.ipynb
+
+# Created by the notebooks' setup cell when they fetch the repository
+tinybamdp_repo/
+tinybamdp.zip
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

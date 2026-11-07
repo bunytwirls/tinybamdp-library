@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tinybamdp"
+version = "0.3.0"
+description = "Exact tabular Bayes-adaptive MDP and POMDP models of decision-making, with fitting and recovery tools"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Maimuna Chowdhury" }]
+dependencies = ["numpy>=1.22", "scipy>=1.8"]
+
+[project.optional-dependencies]
+study = ["matplotlib>=3.5"]
+notebook = ["matplotlib>=3.5", "ipywidgets>=8", "pandas>=1.4"]
+test = ["pytest>=7"]
+
+[tool.setuptools]
+packages = ["tinybamdp"]
+
+[project.urls]
+Homepage = "https://github.com/bunytwirls/tinybamdp-library"
+Repository = "https://github.com/bunytwirls/tinybamdp-library.git"
