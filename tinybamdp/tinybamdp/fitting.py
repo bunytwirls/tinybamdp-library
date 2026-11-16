@@ -1,6 +1,6 @@
 """Maximum-likelihood fitting, cross-validation, parameter and model recovery.
 
-Follows the validation recipe of Wilson & Collins (2019): simulate, fit with
+Follows the validation recipe of Wilson and Collins (2019): simulate, fit with
 multiple random restarts, check parameter recovery, then model recovery.
 
 Model recovery is *tie-aware*: when two models give the same fit (|delta| below
@@ -160,7 +160,7 @@ def recovery_summary(results, models: Sequence[str], criterion: str = "bic", tie
 
     ``decisive>X`` is the share of subjects whose best model beats the
     runner-up by more than X criterion units (BIC: 2 = positive, 6 = strong
-    evidence, Kass & Raftery 1995); ``acc|decisive>X`` is accuracy among them.
+    evidence, Kass & Raftery, 1995); ``acc|decisive>X`` is accuracy among them.
     """
     out = {}
     for gen in models:

@@ -10,7 +10,8 @@ induction.
 only by a permutation of the arms have the same value (with the Q-values
 permuted accordingly).  The graph therefore stores one *canonical* state per
 permutation class: the arms' (s, f) pairs sorted in ascending order.  This
-divides the state count by up to K! (K=4, T=15: 490,314 -> 25,261 states; solve ~90 ms -> ~1.5 ms).
+divides the state count by up to K! (K=4, T=15: 25,261 canonical states out of
+490,314 hyperstates; one solve takes about 1.5 ms).
 :meth:`BanditGraph.lookup` maps arbitrary count vectors to canonical states and
 returns Q-values in the caller's original arm order.
 

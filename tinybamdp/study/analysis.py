@@ -144,7 +144,7 @@ def likelihood_surface(model_name: str, data, fixed: Dict[str, float],
 
 
 def behavioural_signatures(data: BanditData, a: float = 1.0, b: float = 1.0) -> Dict[str, float]:
-    """Zhang & Yu-style signatures: win-stay, lose-shift, P(best mean arm), P(least-tried arm).
+    """Behavioural signatures in the style of Zhang and Yu (2013): win-stay, lose-shift, P(best mean arm), P(least-tried arm).
 
     "Best mean" uses posterior means under a Beta(a, b) prior (default uniform).
     """

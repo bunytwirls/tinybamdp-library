@@ -1,5 +1,5 @@
 {
-  "version": "0.2.0",
+  "version": "0",
   "N_per_model": 100,
   "budget": 240,
   "T0": 10,

@@ -7,7 +7,7 @@ E1  parameter recovery (all models, K=2, T=10)
 E2  model recovery, tie-aware, with 95% CIs, evidence strength, inversion matrix
 E3  horizon sweep KG vs OPT at a fixed 240-choice budget (research question)
 E4  prior-strength / softmax trade-off (error correlations, likelihood surface)
-E5  replication point in Zhang & Yu's regime: K=4 arms, T=15, 20 games
+E5  replication point in the regime of Zhang and Yu (2013): K=4 arms, T=15, 20 games
 E6  leave-one-game-out cross-validation vs BIC
 E7  mixed-horizon design: does varying T within a subject break the n-tau ridge?
 E8  exhaustive KG/OPT equivalence check: shared priors (K in {2,3,4}) and per-arm priors
@@ -55,7 +55,7 @@ OUT.mkdir(exist_ok=True), FIG.mkdir(exist_ok=True)
 plots.style()
 summ_path = OUT / "summary.json"
 summary = json.loads(summ_path.read_text()) if (summ_path.exists() and ONLY != set(p.get_default("only").split(","))) else {}
-summary.update({"version": "0.2.0", "N_per_model": N, "budget": BUDGET, "T0": T0, "tie_eps": TIE_EPS,
+summary.update({"version": "0", "N_per_model": N, "budget": BUDGET, "T0": T0, "tie_eps": TIE_EPS,
                 "models": MODELS})
 t_start = time.time()
 
@@ -192,7 +192,7 @@ if "E4" in ONLY:
     summary["E4_surface"] = {"n_range_95": [float(xs[inside.any(0)].min()), float(xs[inside.any(0)].max())],
                              "tau_range_95": [float(ys[inside.any(1)].min()), float(ys[inside.any(1)].max())]}
 
-# ----------------------------------------- E5 Zhang & Yu regime: K=4, T=15
+# ----------------------------------------- E5 regime of Zhang and Yu (2013): K=4, T=15
 if "E5" in ONLY:
     G5, T5, K5 = 20, 15, 4
     r5 = fitting.run_recovery(MODELS, MODELS, N_K4, G5, T5, K=K5, n_starts=3, seed=500, n_jobs=args.jobs)

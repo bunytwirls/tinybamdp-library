@@ -25,7 +25,7 @@ SETUP_MD = """
 ## 0 · Setup
 Run this cell first. It finds the repository and makes `tinybamdp` (the library) and `study` importable, without copying any code:
 
-1. **Local Jupyter**: open the notebook from the repository's `notebook/` folder; nothing else to do.
+1. **Local Jupyter**: open the notebook from the repository (top level or `tinybamdp/notebook/`); nothing else to do.
 2. **Colab** (default): the cell clones [bunytwirls/tinybamdp-library](https://github.com/bunytwirls/tinybamdp-library) automatically.
 3. **Offline / no GitHub access**: set `REPO_URL = ""` and upload `tinybamdp.zip` (the repository) when asked.
 """
@@ -37,15 +37,21 @@ try:                   # Colab: enable interactive widgets (no-op elsewhere)
     output.enable_custom_widget_manager()
 except Exception:
     pass
+def _project(cand):
+    # the project folder holds the tinybamdp package and study/; in the repository it is the tinybamdp/ subfolder
+    for p in (cand, cand / "tinybamdp"):
+        if (p / "tinybamdp" / "__init__.py").exists() and (p / "study").exists():
+            return p.resolve()
+    return None
 def _find_repo():
     for cand in (pathlib.Path.cwd().parent, pathlib.Path.cwd(), pathlib.Path("tinybamdp_repo")):
-        if (cand / "tinybamdp" / "__init__.py").exists() and (cand / "study").exists():
-            return cand.resolve()
+        if _project(cand):
+            return _project(cand)
     target = pathlib.Path("tinybamdp_repo")
     if REPO_URL:
         r = subprocess.run(["git", "clone", "-q", "--depth", "1", REPO_URL, str(target)], capture_output=True, text=True)
-        if r.returncode == 0:
-            return target.resolve()
+        if r.returncode == 0 and _project(target):
+            return _project(target)
         print("could not clone", REPO_URL, "- falling back to tinybamdp.zip:", r.stderr.strip()[:200])
     zp = pathlib.Path("tinybamdp.zip")
     if not zp.exists():
@@ -55,7 +61,9 @@ def _find_repo():
         except ImportError:
             raise FileNotFoundError("Open this notebook from the repository, put tinybamdp.zip next to it, or set REPO_URL.")
     zipfile.ZipFile(zp).extractall(target)
-    return target.resolve()
+    if _project(target) is None:
+        raise FileNotFoundError(f"{zp} does not contain the tinybamdp package and the study folder.")
+    return _project(target)
 REPO = _find_repo()
 if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
@@ -66,12 +74,12 @@ print("repository:", REPO)
 md(r"""
 # tinybamdp tutorial — exact Bayes-adaptive models of exploration
 
-**How to use `tinybamdp`, a small from-scratch library for tabular decision-making under uncertainty.**
+**How to use `tinybamdp` (version 0), a small from-scratch library for tabular decision-making under uncertainty.**
 
 When people choose between uncertain options they must trade off *exploiting* what they know against *exploring* to learn more.
 Normative accounts treat this as planning in **belief space**: a Bayes-adaptive MDP (BAMDP) when the dynamics are unknown,
 and a POMDP when the state is hidden. This notebook builds both up step by step and shows how to wrap them as cognitive
-models of choice, simulate agents and fit them to data.
+models of choice, simulate agents and fit them to data. All data in this notebook are simulated; no external dataset is used.
 
 The research study built on the library (when can myopic and Bayes-optimal exploration be told apart?) is in the companion
 notebook **`kg_vs_optimal_identifiability.ipynb`**.
@@ -85,8 +93,13 @@ notebook **`kg_vs_optimal_identifiability.ipynb`**.
 | 3 | Exact BAMDP planning | inspect Bayes-optimal vs KG values in any hyperstate |
 | 4 | Value of information | Bayes-adaptive vs certainty-equivalent planning on a generic BAMDP |
 | 5 | POMDP: the tiger problem | belief-space value functions and simulated episodes |
-| 6 | Cognitive models | simulate five agents (any number of arms) and compare behavioural signatures |
+| 6 | Cognitive models | simulate five agents (2–4 arms in the widgets) and compare behavioural signatures |
 | 7 | Model fitting | fit all models to one simulated subject |
+
+**How each section is organised.** Every topic section has the same three parts:
+1. **Observation**: what the cell lets you see or do, and the question it answers.
+2. **Mathematical formulation**: the equations the code implements.
+3. **Analysis**: what the output shows with the default settings, and how to read it.
 
 *Every interactive panel has buttons; long outputs are in scrollable boxes. Runs on a standard Colab CPU runtime.*
 """)
@@ -141,9 +154,21 @@ code(HELPERS)
 # ================================================================== quick start
 md(r"""
 ## Quick start (about a minute)
-Simulate one subject who plans Bayes-optimally, fit the myopic (KG) and optimal (OPT) models, and ask which one the data favour.
-The rest of the notebook explains each piece; the companion notebook `kg_vs_optimal_identifiability.ipynb` asks how
-reliably this comparison works across task designs.
+
+### Observation
+Simulate one subject who plans Bayes-optimally, fit the myopic (KG) and optimal (OPT) models plus a model-free learner (RW),
+and ask which one the data favour. The rest of the notebook explains each piece; the companion notebook
+`kg_vs_optimal_identifiability.ipynb` asks how reliably this comparison works across task designs.
+
+### Mathematical formulation
+The subject plays $G=20$ games of $T=15$ trials on $K=4$ arms, so $N=GT=300$ choices. Each model is fitted by maximum likelihood,
+and models are compared with the Bayesian information criterion
+
+$$\mathrm{BIC}=2\,\mathrm{NLL}+k\ln N,$$
+
+where NLL is the minimised negative log-likelihood and $k$ the number of free parameters. The **margin** is the BIC difference
+between the best and second-best model. A margin below 0.1 counts as a tie; a margin above 2 is conventionally read as positive
+evidence and above 6 as strong evidence (Kass & Raftery, 1995).
 """)
 code(r"""
 rng = np.random.default_rng(0)
@@ -155,9 +180,16 @@ display(table(pd.DataFrame({m: {"NLL": f.nll, "BIC": f.bic, **f.params} for m, f
 display(card(f"Best model by BIC: <b>{winner}</b> · margin to runner-up: <b>{margin:.1f}</b> BIC "
              f"({'strong' if margin > 6 else 'positive' if margin > 2 else 'weak'} evidence)"))
 """)
+md(r"""
+### Analysis
+With `seed 0` the generating model (OPT) wins with a margin of about 8 BIC over RW, which is strong evidence. KG is third.
+The KG fit compensates with a larger prior strength $n$ and a higher choice precision $\tau$ than the OPT fit: the two models
+can trade $n$ against $\tau$, which § 7 and the companion study return to. One subject is one random draw: change the seed and
+the margin changes. How often the comparison picks the right model is the question of the companion notebook.
+""")
 
 # ======================================================================= tests
-md("## 1 · Unit tests\nThe tests (core and study) check closed-form posteriors, a hand-computed two-trial bandit value, that the vectorised bandit solver equals the generic BAMDP solver, that the optimal policy dominates KG and greedy, likelihood normalisation, MLE recovery, and known tiger-problem values.")
+md("## 1 · Unit tests\n\n### Observation\nThe tests (core and study) check closed-form posteriors, a hand-computed two-trial bandit value, that the vectorised bandit solver equals the generic BAMDP solver, that the optimal policy dominates KG and greedy, likelihood normalisation, MLE recovery, and known tiger-problem values.")
 code(r"""
 run_tests = button("Run unit tests", "success", "check")
 tests_out = outbox(320)
@@ -171,14 +203,26 @@ run_tests.on_click(_run_tests)
 display(run_tests, tests_out)
 _run_tests()
 """)
+md("### Analysis\nAll 52 tests should pass (`52 passed`). A failure means the installed library does not match the code this notebook was written for; fix that before reading the results below.")
 
 # ===================================================================== beliefs
 md(r"""
 ## 2 · Beliefs: Beta–Bernoulli conjugacy
-An arm with unknown reward rate $\theta$ and prior $\mathrm{Beta}(a,b)$ has posterior $\mathrm{Beta}(a+s,\,b+f)$ after $s$ wins and
-$f$ losses, with predictive $P(\text{win})=\frac{a+s}{a+b+s+f}$. The pair $(s,f)$ is therefore a sufficient statistic — the
-**hyperstate** that BAMDP planning operates on. Below, the prior is parameterised by its mean $m=a/(a+b)$ and strength $n=a+b$,
-the same parameterisation the fitted models use.
+
+### Observation
+An arm pays a reward with an unknown rate $\theta$. Press **Observe win** or **Observe loss** to feed outcomes to a Bayesian
+learner and watch its belief about $\theta$ change. The sliders set the prior.
+
+### Mathematical formulation
+With prior $\theta\sim\mathrm{Beta}(a,b)$, after $s$ wins and $f$ losses the posterior is
+
+$$\theta\mid s,f\sim\mathrm{Beta}(a+s,\;b+f),\qquad
+P(\text{win})=\frac{a+s}{a+b+s+f},\qquad
+\mathrm{Var}(\theta)=\frac{(a+s)(b+f)}{(a+b+s+f)^2\,(a+b+s+f+1)}.$$
+
+The pair $(s,f)$ is therefore a sufficient statistic: the **hyperstate** that BAMDP planning operates on. The prior is
+parameterised by its mean $m=a/(a+b)$ and strength $n=a+b$, so $a=mn$ and $b=(1-m)n$; the fitted models use the same
+parameterisation.
 """)
 code(r"""
 from scipy.stats import beta as _beta
@@ -210,24 +254,42 @@ br.on_click(_reset)
 for w in (m_s, n_s): w.observe(draw_belief, "value")
 display(W.HBox([m_s, n_s]), W.HBox([bw, bl, br]), b_out); draw_belief()
 """)
+md(r"""
+### Analysis
+With the defaults ($m=0.5$, $n=4$) the prior is $\mathrm{Beta}(2,2)$: mean 0.5, standard deviation 0.224. One win moves it to
+$\mathrm{Beta}(3,2)$ with mean 0.6. Every observation adds 1 to $a+b$, so a larger prior strength $n$ makes each outcome move the
+mean less. This is why $n$ behaves like inertia in the fitted models, and why it can be traded against the choice precision
+$\tau$ when fitting (§ 7).
+""")
 
 # ======================================================================= BAMDP
 md(r"""
 ## 3 · Exact Bayes-adaptive planning for a bandit
-For a $K$-armed bandit played for $T$ trials, the BAMDP state is the count vector $(s_1,f_1,\dots,s_K,f_K)$. Its Bellman equation is
 
-$$Q_n(h,k)=p_k(h)\,[1+V_{n+1}(h+e^{s}_k)]+(1-p_k(h))\,V_{n+1}(h+e^{f}_k),\qquad V_n(h)=\max_k Q_n(h,k),$$
+### Observation
+Pick a hyperstate (wins and losses on each of two arms), a horizon and a prior, and compare what the Bayes-optimal planner (OPT)
+and the myopic Knowledge-Gradient policy (KG) would choose there.
 
-with $p_k(h)$ the posterior predictive. Reachable hyperstates with $n$ observations are the integer $2K$-vectors summing to $n$,
-so the problem is a finite layered graph: $\binom{T+2K}{2K}$ states in total (10,626 for $K=2,T=20$). `bandit_dp` builds the
-graph once per $(K,T)$ and then solves it with one vectorised pass per layer. Because all arms share one prior, states that differ
-only by reordering the arms have the same value, so the graph stores one sorted (*canonical*) state per class: about 24× fewer
-states with 4 arms. Solving takes about a millisecond, fast enough to run inside
-every likelihood evaluation during fitting.
+### Mathematical formulation
+For a $K$-armed bandit played for $T$ trials, the BAMDP state is the count vector $h=(s_1,f_1,\dots,s_K,f_K)$. Its Bellman
+equation (Bellman, 1957), with $n$ observations so far, is
 
-**Knowledge Gradient** (KG) approximates this by assuming that after one more observation no further learning happens:
-$D_k=\mu_k+(T-t-1)\,\mathrm{KG}_k$, where $\mathrm{KG}_k$ is the expected one-step improvement in the best posterior mean.
-Pick a hyperstate below and compare the two.
+$$Q_n(h,k)=p_k(h)\,[1+V_{n+1}(h+e^{s}_k)]+(1-p_k(h))\,V_{n+1}(h+e^{f}_k),\qquad V_n(h)=\max_k Q_n(h,k),\qquad V_T\equiv 0,$$
+
+with $p_k(h)$ the posterior predictive of arm $k$ (§ 2) and $e^{s}_k$, $e^{f}_k$ the unit vectors that add a win or a loss to arm
+$k$ (Duff, 2002). Reachable hyperstates with $n$ observations are the integer $2K$-vectors summing to $n$, so the problem is a
+finite layered graph with $\binom{T+2K}{2K}$ states in total (10,626 for $K=2,T=20$). `bandit_dp` builds the graph once per
+$(K,T)$ and solves it with one vectorised pass per layer. Because all arms share one prior, states that differ only by reordering
+the arms have the same value, so the graph stores one sorted (*canonical*) state per class: about 24 times fewer states with 4 arms.
+Solving takes about a millisecond, fast enough to run inside every likelihood evaluation during fitting.
+
+**Knowledge Gradient** (Frazier et al., 2008; Ryzhov et al., 2012; Zhang & Yu, 2013) assumes that after one more observation no further learning
+happens. With posterior means $\mu_j$ and $\mu'_j$ the means after one more observation of arm $k$,
+
+$$\mathrm{KG}_k=\mathbb{E}\big[\max_j\mu'_j\big]-\max_j\mu_j,\qquad D_k=\mu_k+(T-t-1)\,\mathrm{KG}_k,$$
+
+on trial $t$ (counted from 0). Both policies choose by softmax, $P(k)=e^{\tau v_k}/\sum_j e^{\tau v_j}$, with $v=Q$ for OPT and
+$v=D$ for KG. Because only value *differences* enter the softmax, the panel plots each policy's preference for arm 1 over arm 2.
 """)
 code(r"""
 T_s = W.IntSlider(value=10, min=2, max=30, description="horizon T", **SL)
@@ -277,16 +339,39 @@ def draw_planner(*_):
 for w in [T_s, pm_s, pn_s, *cnt]: w.observe(draw_planner, "value")
 display(W.HBox([W.VBox([T_s, pm_s, pn_s]), W.VBox(cnt)]), p_out); draw_planner()
 """)
+md(r"""
+### Analysis
+The default hyperstate is trial 4 of a 10-trial game with prior $\mathrm{Beta}(2,2)$: arm 1 has 2 wins and 1 loss (posterior
+mean 0.571), arm 2 is untried (mean 0.5). **The two policies disagree.** KG gives the untried arm the higher value
+(0.586 vs 0.571), because one more look at it could change which arm is best. OPT prefers arm 1 (Q = 4.140 vs 4.113), because
+over the six remaining trials the known good arm is worth more. The choice probabilities differ only modestly: P(arm 1) is
+0.48 (KG) vs 0.53 (OPT) at $\tau=5$, and 0.43 vs 0.63 at $\tau=20$. Separating the models therefore needs many choices from
+states like this one.
+
+Two checks to try: (i) set the counts so that at most two choices remain (e.g. 8 observations with $T=10$); KG and OPT then always
+make the same choice, because KG's one-step lookahead is exact there. (ii) The status line reports 511 canonical states for
+$K=2,T=10$ (1,001 before the arm-symmetry reduction) and a Bayes-optimal value of 5.660 for the whole game from scratch.
+""")
 
 # ====================================================================== VOI
 md(r"""
 ## 4 · Value of information on a generic BAMDP
-`TabularBAMDP` handles any tabular MDP whose transitions are unknown, with a Dirichlet belief per $(s,a)$ pair (or per *tied group*
-of pairs). Here: a **known safe arm** that pays with probability `p_safe` against an **unknown arm** with a uniform prior (mean 0.5).
-A *certainty-equivalent* (CE) planner plans in the posterior-mean MDP. **Whenever `p_safe` > 0.5** (the unknown arm's prior mean)
-it always picks the safe arm, so it never learns; at `p_safe` < 0.5 it would pick the unknown arm for exploitation, not exploration.
-The Bayes-adaptive planner tries the unknown arm because what it learns can pay off over the remaining trials. That is the
-exploration bonus that the BAMDP produces by itself.
+
+### Observation
+A **known safe arm** pays with probability `p_safe`; an **unknown arm** has a uniform prior (mean 0.5). Compare a planner that
+values information (Bayes-adaptive) with one that does not (certainty-equivalent, CE), by exact value and by simulated returns.
+
+### Mathematical formulation
+`TabularBAMDP` handles any tabular MDP whose transitions are unknown (Duff, 2002). Each $(s,a)$ pair, or each *tied group* of
+pairs, has a Dirichlet belief with counts $c$ over next states, giving the predictive $\hat P(s'\mid s,a,c)$. The Bayes-adaptive
+value with $h$ steps to go is
+
+$$Q_h(s,c,a)=\sum_{s'}\hat P(s'\mid s,a,c)\,\big[R(s,a,s')+\max_{a'}Q_{h-1}(s',\,c+\mathbb{1}_{s,a\to s'},\,a')\big],\qquad Q_0\equiv 0,$$
+
+so planning looks ahead over how the counts, and hence the beliefs, will change. The CE planner instead solves the ordinary MDP
+with the posterior-mean transitions $\bar P=\hat P(\cdot\mid c)$ held fixed, so it gives no value to learning. Whenever
+`p_safe` > 0.5 (the unknown arm's prior mean) CE always picks the safe arm and never learns; at `p_safe` < 0.5 it picks the unknown
+arm for exploitation, not exploration.
 """)
 code(r"""
 def safe_vs_unknown(p_safe=0.55, conc=1e6):
@@ -324,14 +409,36 @@ def run_voi(_=None):
 go.on_click(run_voi)
 display(W.HBox([H_s, ps_s]), W.HBox([N_s, go]), v_out); run_voi()
 """)
+md(r"""
+### Analysis
+With the defaults (horizon 10, `p_safe` = 0.55, 400 rollouts) the exact Bayes-adaptive value is 6.091 against 5.5 for CE (always
+safe). The simulated means agree: about 6.26 (s.e. 0.11) vs 5.57 (s.e. 0.08). The gap of roughly 0.6 rewards over 10 trials is
+the value of information: the Bayes-adaptive planner tries the unknown arm because what it learns can pay off over the remaining
+trials, an exploration bonus that the BAMDP produces without any added term. With horizon 1 there is nothing left to learn for, and
+the two planners coincide. The memoised recursion visits 1,321 hyperstates here; the count grows quickly with the horizon.
+""")
 
 # ===================================================================== POMDP
 md(r"""
 ## 5 · POMDP: the tiger problem
-A tiger is behind the left or right door. Listening costs 1 and reports the correct side with probability `acc`; opening the
-tiger's door costs 100, the other door pays 10, and opening resets the problem. The belief $b=P(\text{tiger-left})$ is updated by
-the discrete Bayes filter, and the finite-horizon value function is piecewise-linear and convex in $b$ (a set of alpha-vectors),
-computed here by point-based value iteration on a dense belief grid. With 2 states this matches the exact solution.
+
+### Observation
+A tiger is behind the left or right door (Kaelbling et al., 1998). Listening costs 1 and reports the correct side with probability
+`acc`; opening the tiger's door costs 100, the other door pays 10, and opening resets the problem. The plot shows the optimal value
+and action for every belief; **Simulate an episode** plays the optimal policy once.
+
+### Mathematical formulation
+The belief $b(s)=P(s)$ is updated by the discrete Bayes filter after action $a$ and observation $o$:
+
+$$b'(s')=\frac{O(o\mid s',a)\sum_s T(s'\mid s,a)\,b(s)}{P(o\mid b,a)}.$$
+
+The finite-horizon value function
+
+$$V_h(b)=\max_a\Big[\sum_s b(s)R(a,s)+\sum_o P(o\mid b,a)\,V_{h-1}(b')\Big],\qquad V_0\equiv0,$$
+
+is piecewise-linear and convex in $b$, so it is stored as a set of alpha-vectors, $V_h(b)=\max_i\alpha_i\cdot b$. The code backs it up
+at the points of a dense belief grid (point-based value iteration; Pineau et al., 2003). With 2 states and 401 grid points this
+matches the exact solution at the grid points.
 """)
 code(r"""
 th_s = W.IntSlider(value=4, min=1, max=12, description="horizon", **SL)
@@ -375,23 +482,41 @@ for w in (th_s, acc_s): w.observe(draw_tiger, "value")
 ep.on_click(run_episode)
 display(W.HBox([th_s, acc_s]), t_out, ep, e_out); draw_tiger(); run_episode()
 """)
+md(r"""
+### Analysis
+With horizon 4 and `acc` = 0.85 the value function has 5 alpha-vectors. The optimal policy is to listen unless the belief is
+extreme: it opens the right door once $P(\text{tiger-left})\ge 0.935$, opens the left door once it is $\le 0.0675$ (to the
+resolution of the grid), and listens in between. At $b=0.5$ the value of the 4-step problem is 2.42. With horizon 1 (dotted line)
+opening a door has an expected value of $-45$ at $b=0.5$, so even then listening ($-1$) is best. The simulated episode is random, so
+its trace changes each time you press the button.
+""")
 
 # ==================================================================== models
 md(r"""
 ## 6 · Five cognitive models of bandit choice
-All models share one agent interface (`init`, `probs`, `update`) that is used both to **simulate** and to compute the
-**likelihood**, so the simulation and fitting code paths cannot drift apart. Each subject plays $G$ games of $T$ trials on $K$
-arms whose rates are redrawn from an environment prior (default $\mathrm{Beta}(2,2)$) every game.
+
+### Observation
+Simulate a subject from any of the five models and look at its learning curve, its behavioural signatures and its raw choices;
+**Compare all models** simulates all five on the same 200 games at mid-range parameters.
+
+### Mathematical formulation
+Each subject plays $G$ games of $T$ trials on $K$ arms. In every game the arm rates are redrawn from an environment prior,
+$\theta_k\sim\mathrm{Beta}(2,2)$ by default; there is no external dataset. All models share one agent interface (`init`,
+`probs`, `update`) that is used both to **simulate** and to compute the **likelihood**, so the two code paths cannot drift apart.
 
 | Model | Learning | Choice | Free parameters |
 |---|---|---|---|
-| **RW** | delta rule $Q\leftarrow Q+\eta(r-Q)$ | softmax | $\eta,\ \tau$ |
+| **RW** | delta rule $Q_k\leftarrow Q_k+\eta(r-Q_k)$, $Q_k=0.5$ at the start of each game (Rescorla & Wagner, 1972) | softmax on $Q$ | $\eta,\ \tau$ |
 | **WSLS** | none | win-stay / lose-shift with lapse $\epsilon$ | $\epsilon$ |
-| **KG** | Bayesian, prior $(m,n)$ | softmax on Knowledge-Gradient values | $m,\ n,\ \tau$ |
-| **KG-DBM** | forgetful Bayes: rates persist with prob. $\gamma$, else redrawn from the prior (Dynamic Belief Model) | softmax on KG values | $m,\ n,\ \gamma,\ \tau$ |
-| **OPT** | Bayesian, prior $(m,n)$ | softmax on exact BAMDP Q-values | $m,\ n,\ \tau$ |
+| **KG** | Bayesian, prior $\mathrm{Beta}(mn,(1-m)n)$ | softmax on Knowledge-Gradient values $D_k$ (§ 3) | $m,\ n,\ \tau$ |
+| **KG-DBM** | forgetful Bayes: rates persist with probability $\gamma$, else are redrawn from the prior (Dynamic Belief Model; Yu & Cohen, 2009) | softmax on KG values | $m,\ n,\ \gamma,\ \tau$ |
+| **OPT** | Bayesian, prior $\mathrm{Beta}(mn,(1-m)n)$ | softmax on exact BAMDP Q-values (§ 3) | $m,\ n,\ \tau$ |
 
-Deterministic policies have zero-probability choices, which makes the log-likelihood $-\infty$, so every policy has a noise
+Choice rules: softmax $P(k)=e^{\tau v_k}/\sum_j e^{\tau v_j}$. WSLS chooses uniformly on the first trial; afterwards, after a win it
+repeats the last arm with probability $1-\epsilon+\epsilon/K$, and after a loss it chooses each other arm with probability
+$(1-\epsilon)/(K-1)+\epsilon/K$ (Robbins, 1952; Wilson & Collins, 2019). KG-DBM keeps each arm's belief $b$ on a grid of 101 rates;
+after the Bayesian update it relaxes towards the prior, $b\leftarrow\gamma\,b+(1-\gamma)\,p_0$ (Zhang & Yu, 2013).
+Deterministic policies have zero-probability choices, which makes the log-likelihood $-\infty$, so every model has a noise
 term ($\tau$ or $\epsilon$).
 """)
 code(r"""
@@ -464,14 +589,42 @@ def compare(_=None):
 sim_b.on_click(run_sim); cmp_b.on_click(compare)
 display(mdl, W.HBox([W.VBox([sT, sG, sK, ea_s, eb_s, seed_w]), pbox]), W.HBox([sim_b, cmp_b]), s_out, d_out); run_sim()
 """)
+md(r"""
+### Analysis
+**Compare all models** at the defaults (2 arms, 10 trials, 200 games, seed 1, mid-range parameters) gives these signatures:
+
+| Model | win-stay | lose-shift | choose best mean | choose least tried |
+|---|---|---|---|---|
+| RW | 0.88 | 0.58 | 0.81 | 0.33 |
+| WSLS | 0.85 | 0.86 | 0.69 | 0.46 |
+| KG | 0.81 | 0.55 | 0.81 | 0.35 |
+| KG-DBM | 0.74 | 0.65 | 0.72 | 0.42 |
+| OPT | 0.81 | 0.56 | 0.80 | 0.33 |
+
+WSLS stands out by its high lose-shift rate, and KG-DBM by choosing the less-tried arm more often (its forgetting keeps beliefs
+uncertain). RW, KG and OPT are almost indistinguishable on these summary statistics, so separating them needs the trial-by-trial
+likelihood (§ 7) rather than signatures. The default single subject (OPT, 24 games) has a learning curve that moves between
+about 0.4 and 0.7 from trial to trial: with only 24 games per trial position, individual points are noisy.
+""")
 
 # =================================================================== fitting
 md(r"""
 ## 7 · Fitting all models to one subject
-Maximum likelihood with L-BFGS-B in an unconstrained parameter space (logit / log transforms) and several random restarts.
-Models are compared with BIC $=2\,\mathrm{NLL}+k\ln N$. The subject is the one simulated in § 6. Fitting takes a few
-seconds (longer with 4 arms), so it runs only when you press the button. Models within 0.1 BIC of the best are marked as ties,
-and $\Delta$BIC > 2 / > 6 is conventionally read as positive / strong evidence (Kass & Raftery, 1995).
+
+### Observation
+Fit all five models to the subject simulated in § 6 and rank them. Fitting takes a few seconds (longer with 4 arms), so it runs
+only when you press the button.
+
+### Mathematical formulation
+Parameters are optimised in an unconstrained space: $z=\mathrm{logit}(x)$ for parameters in $(0,1)$ ($\eta,\epsilon,m,\gamma$) and
+$z=\log x$ for positive ones ($n,\tau$), within box bounds. The objective is the negative log-likelihood of the observed choices
+$c_{g,t}$,
+
+$$\mathrm{NLL}(z)=-\sum_{g=1}^{G}\sum_{t=1}^{T}\log P_z(c_{g,t}\mid\text{history}),$$
+
+minimised with L-BFGS-B from several random starts; the best start is kept. Models are compared with
+$\mathrm{BIC}=2\,\mathrm{NLL}+k\ln N$. Models within 0.1 BIC of the best are marked as ties, and $\Delta$BIC > 2 / > 6 is
+conventionally read as positive / strong evidence (Kass & Raftery, 1995).
 """)
 code(r"""
 rs_w = W.IntSlider(value=4, min=1, max=10, description="restarts", **SL)
@@ -498,15 +651,33 @@ fit_b.on_click(run_fit)
 display(W.HBox([rs_w, fit_b]), f_out)
 if AUTORUN: run_fit()
 """)
+md(r"""
+### Analysis
+For the default subject (OPT with $m=0.5$, $n\approx3.16$, $\tau\approx9.49$; 24 games × 10 trials = 240 choices; 4 restarts)
+the ranking is RW (BIC 246.5), OPT (248.3), KG (250.1), KG-DBM (253.5), WSLS (304.6). **The generating model loses to RW by
+1.8 BIC**, which is weak evidence either way. This is the pattern the companion study quantifies: on short 2-arm games a
+delta-rule win is weak evidence that a delta-rule learner generated the data. WSLS is clearly rejected, and the OPT fit recovers
+parameters close to the truth ($m=0.46$, $n=2.94$, $\tau=9.05$). Try 4 arms and 15 trials in § 6 to see the margins grow.
+""")
 
 # ---------------------------------------------------- tutorial references
 md(r"""
 ### Where to go next
-* The identifiability study: **`kg_vs_optimal_identifiability.ipynb`**.
-* Original papers for the models: Bellman (1957) MDPs; Duff (2002) BAMDPs; Kaelbling, Littman & Cassandra (1998) POMDPs and the
-  tiger problem; Pineau, Gordon & Thrun (2003) point-based value iteration; Rescorla & Wagner (1972); Robbins (1952)
-  win-stay/lose-shift; Frazier, Powell & Dayanik (2008) and Ryzhov, Powell & Frazier (2012) Knowledge Gradient; Yu & Cohen (2009)
-  Dynamic Belief Model; Zhang & Yu (2013) KG as a model of human exploration; Wilson & Collins (2019) modelling workflow.
+The identifiability study is in **`kg_vs_optimal_identifiability.ipynb`**.
+
+### References
+- Bellman, R. (1957). *Dynamic programming*. Princeton University Press.
+- Duff, M. O. (2002). *Optimal learning: Computational procedures for Bayes-adaptive Markov decision processes* [Doctoral dissertation, University of Massachusetts Amherst].
+- Frazier, P. I., Powell, W. B., & Dayanik, S. (2008). A knowledge-gradient policy for sequential information collection. *SIAM Journal on Control and Optimization, 47*(5), 2410–2439. https://doi.org/10.1137/070693424
+- Kaelbling, L. P., Littman, M. L., & Cassandra, A. R. (1998). Planning and acting in partially observable stochastic domains. *Artificial Intelligence, 101*(1–2), 99–134. https://doi.org/10.1016/S0004-3702(98)00023-X
+- Kass, R. E., & Raftery, A. E. (1995). Bayes factors. *Journal of the American Statistical Association, 90*(430), 773–795. https://doi.org/10.1080/01621459.1995.10476572
+- Pineau, J., Gordon, G., & Thrun, S. (2003). Point-based value iteration: An anytime algorithm for POMDPs. In *Proceedings of the Eighteenth International Joint Conference on Artificial Intelligence* (pp. 1025–1031). IJCAI. https://ijcai.org/proceedings/2003/146
+- Rescorla, R. A., & Wagner, A. R. (1972). A theory of Pavlovian conditioning: Variations in the effectiveness of reinforcement and nonreinforcement. In A. H. Black & W. F. Prokasy (Eds.), *Classical conditioning II: Current research and theory* (pp. 64–99). Appleton-Century-Crofts.
+- Robbins, H. (1952). Some aspects of the sequential design of experiments. *Bulletin of the American Mathematical Society, 58*(5), 527–535. https://doi.org/10.1090/S0002-9904-1952-09620-8
+- Ryzhov, I. O., Powell, W. B., & Frazier, P. I. (2012). The knowledge gradient algorithm for a general class of online learning problems. *Operations Research, 60*(1), 180–195. https://doi.org/10.1287/opre.1110.0999
+- Wilson, R. C., & Collins, A. G. E. (2019). Ten simple rules for the computational modeling of behavioral data. *eLife, 8*, Article e49547. https://doi.org/10.7554/eLife.49547
+- Yu, A. J., & Cohen, J. D. (2009). Sequential effects: Superstition or rational behavior? In *Advances in Neural Information Processing Systems* (Vol. 21, pp. 1873–1880). Curran Associates.
+- Zhang, S., & Yu, A. J. (2013). Forgetful Bayes and myopic planning: Human learning and decision-making in a bandit setting. In *Advances in Neural Information Processing Systems* (Vol. 26, pp. 2607–2615). Curran Associates.
 """)
 
 # ================================================================ study notebook
@@ -516,9 +687,14 @@ md(r"""
 
 **An identifiability study with `tinybamdp`.**
 
-> **Research question.** Zhang & Yu (2013) found that human bandit choices are better described by a *myopic* Knowledge-Gradient
-> (KG) policy than by the Bayes-optimal policy (OPT). Under what task designs can these two models be distinguished from choice
+> **Research question.** Zhang and Yu (2013) found that human bandit choices are better described by a *myopic* Knowledge-Gradient
+> (KG) policy (Frazier et al., 2008; Ryzhov et al., 2012) than by the Bayes-optimal policy (OPT), which solves the task as a
+> Bayes-adaptive MDP (Duff, 2002). Under what task designs can these two models be distinguished from choice
 > data at all, and which of their parameters are identifiable?
+
+Related work covers Bayesian models of human bandit behaviour (Acuna & Schrater, 2010; Steyvers et al., 2009), sample-based
+approximations to Bayes-adaptive planning (Guez et al., 2012), and known weaknesses of the KG policy on bandits (Edwards et al., 2017).
+All data in this study are simulated; no external dataset is used.
 
 The models, planners and fitting tools are introduced in the companion notebook **`tinybamdp_tutorial.ipynb`**. This notebook runs
 the validation study interactively (§ 1) and reports the full-size reference results (§ 2), whose figures are embedded and display
@@ -538,14 +714,14 @@ code(HELPERS)
 # ================================================================ validation
 md(r"""
 ## 1 · Validation study
-We follow Wilson & Collins (2019): simulate subjects from each model with parameters drawn from a behaviourally sensible range,
+We follow Wilson and Collins (2019): simulate subjects from each model with parameters drawn from a behaviourally sensible range,
 fit every model, then check **parameter recovery** (true vs fitted) and **model recovery**.
 
 Model recovery here is **tie-aware** and reports **evidence strength**:
 * if the best and second-best models are within 0.1 BIC, the subject counts as a *tie* rather than being assigned by `argmin`'s
   tie-breaking;
 * next to accuracy we show 95% Wilson confidence intervals and the share of subjects with $|\Delta\mathrm{BIC}|>2$ (positive) and $>6$
-  (strong evidence);
+  (strong evidence; Kass & Raftery, 1995);
 * the **inversion matrix** $P(\text{generating}\mid\text{best fit})$ answers the question you actually face with real data: *if
   model X wins, how likely is it that X generated the data?*
 
@@ -794,7 +970,7 @@ if S:
 3. **Raw accuracy overstates the evidence at mid horizons.** On 2 arms, accuracy rises from {_sw['5']['acc']:.2f} (T = 5) to
    {_sw['20']['acc']:.2f} (T = 20), but only {_sw['5']['decisive>2']:.0%} of subjects at T = 5 have positive evidence
    ({_sw['5']['decisive>6']:.0%} strong). T = 20 and T = 30 are statistically indistinguishable.
-4. **Zhang & Yu's regime works** (4 arms, 15 trials, 20 games, N = {_k4['N']} per model): KG is recovered for {_k4s['KG']['acc']:.0%}
+4. **Zhang and Yu's (2013) regime works** (4 arms, 15 trials, 20 games, N = {_k4['N']} per model): KG is recovered for {_k4s['KG']['acc']:.0%}
    [95% CI {_k4s['KG']['acc_lo']:.2f}–{_k4s['KG']['acc_hi']:.2f}] and OPT for {_k4s['OPT']['acc']:.0%}
    [{_k4s['OPT']['acc_lo']:.2f}–{_k4s['OPT']['acc_hi']:.2f}]. KG and OPT are rarely confused with each other there
    (KG→OPT {_k4['confusion'][2][4]:.0%}, OPT→KG {_k4['confusion'][4][2]:.0%}); OPT's remaining errors go mostly to RW
@@ -806,7 +982,7 @@ if S:
    KG-DBM, {_tc['OPT']['n~tau']:.2f} OPT). Mixing horizons within a subject does not fix this ({_mx['mixed 5 + 20']['n~tau']:.2f} mixed vs
    {_mx['fixed T=5']['n~tau']:.2f} / {_mx['fixed T=20']['n~tau']:.2f} fixed); longer games only make both more precise. Report n and τ
    jointly, or fix one of them.
-7. **The forgetful KG-DBM is hard to identify on stationary bandits** (recovered {_s2['KG-DBM']['acc']:.0%}; γ r =
+7. **The forgetful KG-DBM (Yu & Cohen, 2009; Zhang & Yu, 2013) is hard to identify on stationary bandits** (recovered {_s2['KG-DBM']['acc']:.0%}; γ r =
    {S['E1_param_recovery']['KG-DBM']['gamma']['pearson_r']:.2f}).
 8. **Cross-validation and BIC disagree for {1 - _cv['agreement']:.0%} of subjects** (N = {_cv['N']} per model): leave-one-game-out CV
    penalises complexity less, favouring KG-DBM more and RW less.
@@ -817,7 +993,7 @@ with a forgetful learner is not implemented (its beliefs are no longer counts).
 
 **Next steps.** Fit real bandit data (e.g., Steyvers et al., 2009); test designs with forced-choice "free information" trials
 (Wilson et al., 2014) against the n–τ trade-off; use adaptive design optimisation (Myung & Pitt, 2009; Cavagnaro et al., 2010);
-add an I-POMDP module.
+add an I-POMDP module (Gmytrasiewicz & Doshi, 2005).
 """
 # ================================================================== findings
 import base64
@@ -879,7 +1055,7 @@ Reference run (`python study/run_all.py`): {S['N_per_model']} simulated subjects
 tie threshold |ΔBIC| < {S['tie_eps']}. The figures below are embedded in the notebook, so they display without running anything.
 
 **Sanity check.** An OPT agent with prior Beta(2, 2) (400 games) is fitted back as Beta({e0[0]:.2f}, {e0[1]:.2f}).
-Zhang & Yu (2013) report a similar check, recovering Beta(1.93, 2.15).
+Zhang and Yu (2013) report a similar check, recovering Beta(1.93, 2.15).
 
 ### 2.1 Headline: which designs can separate myopic from optimal exploration?
 KG-vs-OPT recovery at a fixed budget of {S['budget']} choices, for 2–4 arms and 4–15 trials per game ({des['N']} subjects per model
@@ -912,7 +1088,7 @@ only with ≤ 2 choices left. The shared-prior equality at T = 3 holds only beca
 """)
 
     md_fig(f"""
-### 2.3 Model recovery at T = {S['T0']} (2 arms) and in Zhang & Yu's regime (4 arms, 15 trials, 20 games)
+### 2.3 Model recovery at T = {S['T0']} (2 arms) and in Zhang and Yu's (2013) regime (4 arms, 15 trials, 20 games)
 
 **2 arms, T = {S['T0']}**: left, P(best fit | generating) with a tie column; right, the inversion P(generating | best fit).
 
@@ -961,23 +1137,21 @@ run uses 100 per model (60 per cell in the design heat map), so differences smal
 
 md(r"""
 ### References
-- Acuna, D. E., & Schrater, P. (2010). Structure learning in human sequential decision-making. *PLoS Computational Biology*, 6(12), e1001003.
-- Cavagnaro, D. R., Myung, J. I., Pitt, M. A., & Kujala, J. V. (2010). Adaptive design optimization: A mutual information-based approach to model discrimination in cognitive science. *Neural Computation*, 22(4), 887–905.
-- Duff, M. O. (2002). *Optimal learning: Computational procedures for Bayes-adaptive Markov decision processes.* PhD thesis, UMass Amherst.
-- Edwards, J., Fearnhead, P., & Glazebrook, K. (2016). On the identification and mitigation of weaknesses in the Knowledge Gradient policy for multi-armed bandits. arXiv:1607.05970.
-- Frazier, P. I., Powell, W. B., & Dayanik, S. (2008). A knowledge-gradient policy for sequential information collection. *SIAM J. Control Optim.*, 47(5), 2410–2439.
-- Guez, A., Silver, D., & Dayan, P. (2012). Efficient Bayes-adaptive reinforcement learning using sample-based search. *NeurIPS.*
-- Kaelbling, L. P., Littman, M. L., & Cassandra, A. R. (1998). Planning and acting in partially observable stochastic domains. *Artificial Intelligence*, 101, 99–134.
-- Kass, R. E., & Raftery, A. E. (1995). Bayes factors. *JASA*, 90(430), 773–795.
-- Myung, J. I., & Pitt, M. A. (2009). Optimal experimental design for model discrimination. *Psychological Review*, 116(3), 499–518.
-- Pineau, J., Gordon, G., & Thrun, S. (2003). Point-based value iteration: An anytime algorithm for POMDPs. *IJCAI.*
-- Ryzhov, I. O., Powell, W. B., & Frazier, P. I. (2012). The knowledge gradient algorithm for a general class of online learning problems. *Operations Research*, 60(1), 180–195.
-- Steyvers, M., Lee, M. D., & Wagenmakers, E.-J. (2009). A Bayesian analysis of human decision-making on bandit problems. *J. Mathematical Psychology*, 53(3), 168–179.
-- Wilson, R. C., & Collins, A. G. E. (2019). Ten simple rules for the computational modeling of behavioral data. *eLife*, 8, e49547.
-- Wilson, R. C., Geana, A., White, J. M., Ludvig, E. A., & Cohen, J. D. (2014). Humans use directed and random exploration to solve the explore–exploit dilemma. *J. Experimental Psychology: General*, 143(6), 2074–2081.
-- Yu, A. J., & Cohen, J. D. (2009). Sequential effects: Superstition or rational behavior? *NeurIPS.*
-- Zhang, S., & Yu, A. J. (2013). Forgetful Bayes and myopic planning: Human learning and decision-making in a bandit setting. *NeurIPS.*
-- *Future work:* Gmytrasiewicz, P. J., & Doshi, P. (2005). A framework for sequential planning in multi-agent settings. *JAIR*, 24, 49–79 (I-POMDPs, not yet implemented).
+- Acuna, D. E., & Schrater, P. (2010). Structure learning in human sequential decision-making. *PLoS Computational Biology, 6*(12), Article e1001003. https://doi.org/10.1371/journal.pcbi.1001003
+- Cavagnaro, D. R., Myung, J. I., Pitt, M. A., & Kujala, J. V. (2010). Adaptive design optimization: A mutual information-based approach to model discrimination in cognitive science. *Neural Computation, 22*(4), 887–905.
+- Duff, M. O. (2002). *Optimal learning: Computational procedures for Bayes-adaptive Markov decision processes* [Doctoral dissertation, University of Massachusetts Amherst].
+- Edwards, J., Fearnhead, P., & Glazebrook, K. (2017). On the identification and mitigation of weaknesses in the knowledge gradient policy for multi-armed bandits. *Probability in the Engineering and Informational Sciences, 31*(2), 239–263. https://doi.org/10.1017/S0269964816000279
+- Frazier, P. I., Powell, W. B., & Dayanik, S. (2008). A knowledge-gradient policy for sequential information collection. *SIAM Journal on Control and Optimization, 47*(5), 2410–2439. https://doi.org/10.1137/070693424
+- Gmytrasiewicz, P. J., & Doshi, P. (2005). A framework for sequential planning in multi-agent settings. *Journal of Artificial Intelligence Research, 24*, 49–79. https://doi.org/10.1613/jair.1579
+- Guez, A., Silver, D., & Dayan, P. (2012). Efficient Bayes-adaptive reinforcement learning using sample-based search. In *Advances in Neural Information Processing Systems* (Vol. 25, pp. 1025–1033). Curran Associates.
+- Kass, R. E., & Raftery, A. E. (1995). Bayes factors. *Journal of the American Statistical Association, 90*(430), 773–795. https://doi.org/10.1080/01621459.1995.10476572
+- Myung, J. I., & Pitt, M. A. (2009). Optimal experimental design for model discrimination. *Psychological Review, 116*(3), 499–518. https://doi.org/10.1037/a0016104
+- Ryzhov, I. O., Powell, W. B., & Frazier, P. I. (2012). The knowledge gradient algorithm for a general class of online learning problems. *Operations Research, 60*(1), 180–195. https://doi.org/10.1287/opre.1110.0999
+- Steyvers, M., Lee, M. D., & Wagenmakers, E.-J. (2009). A Bayesian analysis of human decision-making on bandit problems. *Journal of Mathematical Psychology, 53*(3), 168–179. https://doi.org/10.1016/j.jmp.2008.11.002
+- Wilson, R. C., & Collins, A. G. E. (2019). Ten simple rules for the computational modeling of behavioral data. *eLife, 8*, Article e49547. https://doi.org/10.7554/eLife.49547
+- Wilson, R. C., Geana, A., White, J. M., Ludvig, E. A., & Cohen, J. D. (2014). Humans use directed and random exploration to solve the explore–exploit dilemma. *Journal of Experimental Psychology: General, 143*(6), 2074–2081. https://doi.org/10.1037/a0038199
+- Yu, A. J., & Cohen, J. D. (2009). Sequential effects: Superstition or rational behavior? In *Advances in Neural Information Processing Systems* (Vol. 21, pp. 1873–1880). Curran Associates.
+- Zhang, S., & Yu, A. J. (2013). Forgetful Bayes and myopic planning: Human learning and decision-making in a bandit setting. In *Advances in Neural Information Processing Systems* (Vol. 26, pp. 2607–2615). Curran Associates.
 """)
 
 def _write(cell_list, name):

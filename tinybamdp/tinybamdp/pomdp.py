@@ -95,7 +95,7 @@ def belief_grid_2(n: int = 201) -> np.ndarray:
 
 def tiger(listen_acc: float = 0.85, r_listen: float = -1.0, r_good: float = 10.0,
           r_bad: float = -100.0) -> TabularPOMDP:
-    """Classic tiger problem (Kaelbling, Littman & Cassandra, 1998).
+    """Classic tiger problem (Kaelbling et al., 1998).
 
     States: tiger-left (0), tiger-right (1).  Actions: listen, open-left, open-right.
     Opening a door resets the problem uniformly.

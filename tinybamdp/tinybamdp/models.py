@@ -84,7 +84,7 @@ class Model:
         """Uniform in z-space within the simulation range (log-uniform for positive params).
 
         Simulation ranges are narrower than fitting bounds so that simulated
-        agents behave non-randomly, as recommended by Wilson & Collins (2019).
+        agents behave non-randomly, as recommended by Wilson and Collins (2019).
         """
         z = []
         for p in self.params:

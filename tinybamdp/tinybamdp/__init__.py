@@ -17,7 +17,7 @@ from . import bandit_dp, bamdp, beliefs, fitting, models, pomdp, task
 from .models import MODELS, get_model, register_model
 from .task import BanditData, log_likelihood, sample_task, simulate, simulate_design
 
-__version__ = "0.1.0"
+__version__ = "0"
 __all__ = ["bandit_dp", "bamdp", "beliefs", "fitting", "models", "pomdp", "task",
            "MODELS", "get_model", "register_model", "BanditData", "log_likelihood", "sample_task",
            "simulate", "simulate_design"]

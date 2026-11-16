@@ -155,7 +155,7 @@ def test_kg_equals_optimal_choice_gap_for_short_two_arm_games(T, a0, b0):
         assert np.allclose(Q[n][:, 0] - Q[n][:, 1], v[:, 0] - v[:, 1])
 
 
-# ------------------------------------------------------------- v0.2 additions
+# ------------------------------------------------- recovery, symmetry and fast paths
 
 
 def test_kg_dbm_reduces_to_kg_when_gamma_is_one():
